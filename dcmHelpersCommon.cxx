@@ -182,8 +182,14 @@ void dcmHelpersCommon::copyElement(const DcmTagKey tag, DcmDataset *src, DcmData
   OFCondition cond;
   
   cond = src->findAndGetElement(tag, e, OFFalse, OFTrue);
-  if(cond.good())
+  if(cond.good()){
     cond = dest->insert(e, true);
+    dest->findAndGetElement(tag,e);
+    char *str;
+    e->getString(str);
+    if(str)
+      std::cout << "Inserted: " << str << std::endl;
+    }
 };
 
 
@@ -197,6 +203,12 @@ void dcmHelpersCommon::copyPatientStudyModule(DcmDataset *src, DcmDataset *dest)
     dcmHelpersCommon::copyElement(patientStudyModuleTags[i], src, dest);
 }
 
+void dcmHelpersCommon::copyGeneralStudyModule(DcmDataset *src, DcmDataset *dest){
+  for(int i=0;i<sizeof(generalStudyModuleTags)/sizeof(DcmTagKey);i++)
+    dcmHelpersCommon::copyElement(generalStudyModuleTags[i], src, dest);
+}
+
+/*
 void dcmHelpersCommon::findAndGetCodedValueFromSequenceItem(DcmItem *seq,
                                                             DSRCodedEntryValue &codedEntry){
   char *elementStr;
@@ -221,6 +233,7 @@ void dcmHelpersCommon::findAndGetCodedValueFromSequenceItem(DcmItem *seq,
   codedEntry.setCode(codeValue.c_str(), codingSchemeDesignator.c_str(),
                      codeMeaning.c_str());
 }
+*/
 
 void dcmHelpersCommon::addLanguageOfContent(DSRDocument *doc){
   doc->getTree().addContentItem(DSRTypes::RT_hasConceptMod, DSRTypes::VT_Code, DSRTypes::AM_belowCurrent);
@@ -244,7 +257,9 @@ void dcmHelpersCommon::addObservationContext(DSRDocument *doc){
 }
 
 // TODO: parameterize the actual values initialized
-void dcmHelpersCommon::addObserverContext(DSRDocument *doc){
+void dcmHelpersCommon::addObserverContext(DSRDocument *doc, const char* deviceObserverUID,
+                                          const char* deviceObserverName, const char* deviceObserverManufacturer,
+                                          const char* deviceObserverModelName, const char* deviceObserverSerialNumber){
     // TODO: TID 1001 Observation context
     doc->getTree().addContentItem(DSRTypes::RT_hasObsContext, DSRTypes::VT_Code, DSRTypes::AM_afterCurrent);
     doc->getTree().getCurrentContentItem().setConceptName(
@@ -256,27 +271,27 @@ void dcmHelpersCommon::addObserverContext(DSRDocument *doc){
     doc->getTree().addContentItem(DSRTypes::RT_hasObsContext, DSRTypes::VT_UIDRef, DSRTypes::AM_afterCurrent);
     doc->getTree().getCurrentContentItem().setConceptName(
                 DSRCodedEntryValue("121012","DCM","Device Observer UID"));
-    doc->getTree().getCurrentContentItem().setStringValue("0.0.0.0");
+    doc->getTree().getCurrentContentItem().setStringValue(deviceObserverUID);
 
     doc->getTree().addContentItem(DSRTypes::RT_hasObsContext, DSRTypes::VT_Text, DSRTypes::AM_afterCurrent);
     doc->getTree().getCurrentContentItem().setConceptName(
                 DSRCodedEntryValue("121013","DCM","Device Observer Name"));
-    doc->getTree().getCurrentContentItem().setStringValue("QIICR");
+    doc->getTree().getCurrentContentItem().setStringValue(deviceObserverName);
 
     doc->getTree().addContentItem(DSRTypes::RT_hasObsContext, DSRTypes::VT_Text, DSRTypes::AM_afterCurrent);
     doc->getTree().getCurrentContentItem().setConceptName(
                 DSRCodedEntryValue("121014","DCM","Device Observer Manufacturer"));
-    doc->getTree().getCurrentContentItem().setStringValue("QIICR");
+    doc->getTree().getCurrentContentItem().setStringValue(deviceObserverManufacturer);
 
     doc->getTree().addContentItem(DSRTypes::RT_hasObsContext, DSRTypes::VT_Text, DSRTypes::AM_afterCurrent);
     doc->getTree().getCurrentContentItem().setConceptName(
                 DSRCodedEntryValue("121015","DCM","Device Observer Model Name"));
-    doc->getTree().getCurrentContentItem().setStringValue("0.0.1");
+    doc->getTree().getCurrentContentItem().setStringValue(deviceObserverModelName);
 
     doc->getTree().addContentItem(DSRTypes::RT_hasObsContext, DSRTypes::VT_Text, DSRTypes::AM_afterCurrent);
     doc->getTree().getCurrentContentItem().setConceptName(
                 DSRCodedEntryValue("121016","DCM","Device Observer Serial Number"));
-    doc->getTree().getCurrentContentItem().setStringValue("NA");
+    doc->getTree().getCurrentContentItem().setStringValue(deviceObserverSerialNumber);
 }
 
 void dcmHelpersCommon::addProcedureContext(DSRDocument *doc){
@@ -321,7 +336,8 @@ void dcmHelpersCommon::addImageLibraryEntry(DSRDocument *doc, DcmDataset *imgDat
 
     // Image Laterality
     if(imgDataset->findAndGetSequenceItem(DCM_ImageLaterality,sequenceItem).good()){
-       findAndGetCodedValueFromSequenceItem(sequenceItem, codedValue);
+       codedValue.readSequence(*imgDataset, DCM_ImageLaterality,"2");
+       //findAndGetCodedValueFromSequenceItem(sequenceItem, codedValue);
        doc->getTree().addContentItem(DSRTypes::RT_hasAcqContext,
                                      DSRTypes::VT_Code,
                                      DSRTypes::AM_belowCurrent);
@@ -333,7 +349,8 @@ void dcmHelpersCommon::addImageLibraryEntry(DSRDocument *doc, DcmDataset *imgDat
 
     // Image View
     if(imgDataset->findAndGetSequenceItem(DCM_ViewCodeSequence,sequenceItem).good()){
-      findAndGetCodedValueFromSequenceItem(sequenceItem,codedValue);
+      //findAndGetCodedValueFromSequenceItem(sequenceItem,codedValue);
+      codedValue.readSequence(*imgDataset, DCM_ViewCodeSequence, "2");
       doc->getTree().addContentItem(DSRTypes::RT_hasAcqContext,
                                     DSRTypes::VT_Code,
                                     addMode);
@@ -342,8 +359,9 @@ void dcmHelpersCommon::addImageLibraryEntry(DSRDocument *doc, DcmDataset *imgDat
                   DSRCodedEntryValue("111031","DCM","Image View"));
       doc->getTree().getCurrentContentItem().setCodeValue(codedValue);
 
-      if(imgDataset->findAndGetSequenceItem(DCM_ViewModifierCodeSequence,sequenceItem).good()){
-        findAndGetCodedValueFromSequenceItem(sequenceItem,codedValue);
+      //if(imgDataset->findAndGetSequenceItem(DCM_ViewModifierCodeSequence,sequenceItem).good()){
+      if(codedValue.readSequence(*imgDataset, DCM_ViewModifierCodeSequence, "2").good()){
+        //findAndGetCodedValueFromSequenceItem(sequenceItem,codedValue);
         doc->getTree().addContentItem(DSRTypes::RT_hasConceptMod,
                                       DSRTypes::VT_Code,
                                       DSRTypes::AM_belowCurrent);

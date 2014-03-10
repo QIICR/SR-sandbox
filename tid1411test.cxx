@@ -3,6 +3,14 @@
 #include <string>
 #include <vector>
 
+#define QIICR_UID_ROOT "1.3.6.1.4.1.43046.3"
+#define QIICR_IMPLEMENTATION_CLASS_UID QIICR_UID_ROOT ".0.1"
+#define QIICR_CODING_SCHEME_UID_ROOT QIICR_UID_ROOT ".0.0"
+
+#define QIICR_DEVICE_OBSERVER_UID QIICR_IMPLEMENTATION_CLASS_UID ".99.1" // use .99 for sandbox code examples
+
+#define SITE_UID_ROOT QIICR_UID_ROOT
+
 // DCMTK includes
 #include "dcmtk/config/osconfig.h"    /* make sure OS specific configuration is included first */
 
@@ -18,8 +26,6 @@
 int getReferencedInstances(DcmDataset* dataset,
                             std::vector<std::string> &classUIDs,
                             std::vector<std::string> &instanceUIDs);
-
-std::string getDcmElementAsString(const DcmTag& tag, DcmDataset* dcmIn);
 
 int main(int argc, char** argv)
 {
@@ -57,11 +63,6 @@ int main(int argc, char** argv)
       std::cerr << "Failed to find references to the source image" << std::endl;
       return -1;
   }
-
-  std::string segStudyUIDStr, segSeriesUIDStr, segInstanceUIDStr;
-  segStudyUIDStr = getDcmElementAsString(DCM_StudyInstanceUID, datasetSEG);
-  segSeriesUIDStr = getDcmElementAsString(DCM_SeriesInstanceUID, datasetSEG);
-  segInstanceUIDStr = getDcmElementAsString(DCM_SOPInstanceUID, datasetSEG);
 
   char* segInstanceUIDPtr;
   datasetSEG->findAndGetElement(DCM_SOPInstanceUID, e);
@@ -121,17 +122,24 @@ int main(int argc, char** argv)
   dcmHelpersCommon::addLanguageOfContent(doc);
 
   // TID 1001: Observation context
-  dcmHelpersCommon::addObservationContext(doc);
+  //dcmHelpersCommon::addObservationContext(doc);
+  // TODO: replace device observer name with git repository, and model name with the git hash
+  dcmHelpersCommon::addObserverContext(doc, QIICR_DEVICE_OBSERVER_UID, "tid1411test",
+                                      "QIICR", "0.0.1", "0");
 
   // TID 4020: Image library
+  //  at the same time, add all referenced instances to CurrentRequestedProcedureEvidence sequence
   node = doc->getTree().addContentItem(DSRTypes::RT_contains, DSRTypes::VT_Container, DSRTypes::AM_afterCurrent);
   doc->getTree().getCurrentContentItem().setConceptName(
               DSRCodedEntryValue("111028", "DCM", "Image Library"));
   for(int i=0;i<referencedImages.size();i++){
     DcmFileFormat *fileFormat = new DcmFileFormat();
-    fileFormat->loadFile(referencedImages[i].c_str());
+    fileFormat->loadFile(referencedImages[i].c_str());    
     dcmHelpersCommon::addImageLibraryEntry(doc, fileFormat->getDataset());
+
+    doc->getCurrentRequestedProcedureEvidence().addItem(*fileFormat->getDataset());
   }
+  doc->getCurrentRequestedProcedureEvidence().addItem(*datasetSEG);
 
 
   WARN_IF_ERROR(doc->getTree().addContentItem(DSRTypes::RT_contains,
@@ -143,7 +151,7 @@ int main(int argc, char** argv)
 
   // TID 1411
   doc->getTree().addContentItem(DSRTypes::RT_contains, DSRTypes::VT_Container, DSRTypes::AM_belowCurrent);
-  doc->getTree().getCurrentContentItem().setConceptName(DSRCodedEntryValue("125007","DCM","Measurement group"));
+  doc->getTree().getCurrentContentItem().setConceptName(DSRCodedEntryValue("125007","DCM","Measurement Group"));
 
   //
   node = doc->getTree().addContentItem(
@@ -159,7 +167,7 @@ int main(int argc, char** argv)
   doc->getTree().getCurrentContentItem().setConceptName(
               DSRCodedEntryValue("112040","DCM","Tracking Unique Identifier"));
   char trackingUID[128];
-  dcmGenerateUniqueIdentifier(trackingUID, SITE_SERIES_UID_ROOT);
+  dcmGenerateUniqueIdentifier(trackingUID, SITE_INSTANCE_UID_ROOT);
   doc->getTree().getCurrentContentItem().setStringValue(trackingUID);
 
   node = doc->getTree().addContentItem(
@@ -195,81 +203,39 @@ int main(int argc, char** argv)
     DSRCodedEntryValue("[hnsf'U]","UCUM","Hounsfield unit"));
 
   doc->getTree().addContentItem(DSRTypes::RT_contains,
-                                DSRTypes::VT_Container,
-                                DSRTypes::AM_afterCurrent);
-  doc->getTree().getCurrentContentItem().setTemplateIdentification(
-              "1419", "DCMR");
-
-  doc->getTree().addContentItem(DSRTypes::RT_contains,
                                 DSRTypes::VT_Num,
-                                DSRTypes::AM_belowCurrent);
+                                DSRTypes::AM_afterCurrent);
   doc->getTree().getCurrentContentItem().setNumericValue(measurement);
 
   doc->getTree().getCurrentContentItem().setConceptName(
-              DSRCodedEntryValue("R-00317","SRT","Mean"));
+              DSRCodedEntryValue("112031","DCM","Attenuation Coefficient"));
 
-  // Current Requested Procedure Evidence Sequence is required since
-  //  composite SOP instances are referenced
+  WARN_IF_ERROR(doc->getTree().addContentItem(DSRTypes::RT_hasConceptMod,
+                                DSRTypes::VT_Code,
+                                DSRTypes::AM_belowCurrent), "Failed to add code");
+  assert(doc->getTree().getCurrentContentItem().setConceptName(
+              DSRCodedEntryValue("121401","DCM","Derivation")).good());
+  assert(doc->getTree().getCurrentContentItem().setCodeValue(
+              DSRCodedEntryValue("R-00317","SRT","Mean")).good());
 
-  //datasetSR->putAndInsertString(DCM_StudyInstanceUID, segStudyUIDStr.c_str());
-
-  DcmItem *seq1, *seq2, *seq3, *seq4;
-  datasetSR->findOrCreateSequenceItem(DCM_CurrentRequestedProcedureEvidenceSequence,
-                                      seq1);
-  // unless we have access to the database, we cannot query the series
-  // instance UID for the source images; so assume it is the same as for
-  // the segmentation object
-  // List all source images and the segmentation object in this sequence
-
-  seq1->putAndInsertString(DCM_StudyInstanceUID, segStudyUIDStr.c_str());
-
-  seq1->findOrCreateSequenceItem(DCM_ReferencedSeriesSequence, seq2, 0);
-  seq2->putAndInsertString(DCM_SeriesInstanceUID, imageSeriesInstanceUIDPtr);
-  for(int i=0;i<referencedClassUIDs.size();i++){
-    seq2->findOrCreateSequenceItem(DCM_ReferencedSOPSequence, seq3, i);
-    seq3->putAndInsertString(DCM_ReferencedSOPClassUID,
-                             referencedClassUIDs[i].c_str());
-    seq3->putAndInsertString(DCM_ReferencedSOPInstanceUID,
-                             referencedInstanceUIDs[i].c_str());
-   }
-
-  // reference the segmentation object
-  seq1->findOrCreateSequenceItem(DCM_ReferencedSeriesSequence, seq2, 1);
-  seq2->putAndInsertString(DCM_SeriesInstanceUID, segSeriesUIDStr.c_str());
-  seq2->findOrCreateSequenceItem(DCM_ReferencedSOPSequence, seq3);
-  seq3->putAndInsertString(DCM_ReferencedSOPClassUID,
-                           UID_SegmentationStorage);
-  seq3->putAndInsertString(DCM_ReferencedSOPInstanceUID,
-                           segInstanceUIDStr.c_str());
-
-  // TODO: initialize series/study UID
-  //       use custom root UID for initialization
-  //seq->putAndInsertString(DCM_MappingResource, "DCMR");
-  //seq->putAndInsertString(DCM_TemplateIdentifier, "1411");
-
-  // Initialize Patient module
-  //copyDcmElement(DCM_PatientName, datasetSEG, datasetSR);
-  //copyDcmElement(DCM_PatientID, datasetSEG, datasetSR);
-  //copyDcmElement(DCM_PatientBirthDate, datasetSEG, datasetSR);
-  //copyDcmElement(DCM_PatientSex, datasetSEG, datasetSR);
   OFString contentDate, contentTime;
   DcmDate::getCurrentDate(contentDate);
   DcmTime::getCurrentTime(contentTime);
 
+  // Note: ContentDate/Time are populated by DSRDocument
+  doc->setSeriesDate(contentDate.c_str());
+  doc->setSeriesTime(contentTime.c_str());
+
+  doc->getCodingSchemeIdentification().addItem("99QIICR");
+  doc->getCodingSchemeIdentification().setCodingSchemeUID(QIICR_CODING_SCHEME_UID_ROOT);
+  doc->getCodingSchemeIdentification().setCodingSchemeName("QIICR Coding Scheme");
+  doc->getCodingSchemeIdentification().setCodingSchemeResponsibleOrganization("Quantitative Imaging for Cancer Research, http://qiicr.org");
+
+  doc->write(*datasetSR);
+
   dcmHelpersCommon::copyPatientModule(datasetImage,datasetSR);
   dcmHelpersCommon::copyPatientStudyModule(datasetImage,datasetSR);
-
-  datasetSR->putAndInsertString(DCM_ContentDate, contentDate.c_str());
-  datasetSR->putAndInsertString(DCM_ContentTime, contentTime.c_str());
-  datasetSR->putAndInsertString(DCM_SeriesDate, contentDate.c_str());
-  datasetSR->putAndInsertString(DCM_SeriesTime, contentTime.c_str());
-  datasetSR->putAndInsertString(DCM_StudyDate, contentDate.c_str());
-  datasetSR->putAndInsertString(DCM_StudyTime, contentTime.c_str());
-  //datasetSR->putAndInsertString(DCM_AcquisitionDate, contentDate.c_str());
-  //datasetSR->putAndInsertString(DCM_AcquisitionTime, contentTime.c_str());
-
-  doc->getCodingSchemeIdentification().addPrivateDcmtkCodingScheme();
-  doc->write(*datasetSR);
+  dcmHelpersCommon::copyGeneralStudyModule(datasetImage,datasetSR);
 
   fileformatSR->saveFile("report.dcm", EXS_LittleEndianExplicit);
 
@@ -309,17 +275,4 @@ int getReferencedInstances(DcmDataset* dataset,
   }
 
   return classUIDs.size();
-}
-
-std::string getDcmElementAsString(const DcmTag& tag, DcmDataset* dcmIn)
-{
-  char *str = NULL;
-  DcmElement* element;
-  DcmTag copy = tag;
-  OFCondition cond = dcmIn->findAndGetElement(tag, element);
-  if(cond.good())
-  {
-    element->getString(str);
-  }
-  return std::string(str);
 }

@@ -40,8 +40,6 @@ class dcmHelpersCommon {
 
     //static void copyItems(DcmDataset *src, DcmDataset *dest);
 
-    static void findAndGetCodedValueFromSequenceItem(DcmItem*, DSRCodedEntryValue&);
-
     // functions to initialize specific templates; return to the same level in the input
     // -- TID 4020 "CAD Image Library Entry Template"
     // this function adds an
@@ -51,7 +49,9 @@ class dcmHelpersCommon {
     // -- TID 1001 "Observation context"
     static void addObservationContext(DSRDocument*);
     // -- TID 1002 "Observer context"
-    static void addObserverContext(DSRDocument*);
+    static void addObserverContext(DSRDocument*,const char* deviceObserverUID = "",
+                                   const char* deviceObserverName ="", const char* deviceObserverManufacturer = "",
+                                   const char* deviceObserverModelName ="", const char* deviceObserverSerialNumber = "");
     // -- TID 1005 "Procedure context"
     static void addProcedureContext(DSRDocument*);
     // -- TID 1006 "Subject context"
