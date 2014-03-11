@@ -79,7 +79,6 @@ const DcmTagKey dcmHelpersCommon::patientStudyModuleTags[] = {
   DCM_Occupation,
   DCM_AdditionalPatientHistory,
   DCM_AdmissionID,
-  DcmTagKey(0x0038,0x0014), // DCM_IssuerOfAdmissionID -- not in DCMTK ?
   DCM_IssuerOfAdmissionIDSequence,
   DCM_ServiceEpisodeID,
   DCM_IssuerOfServiceEpisodeIDSequence,
